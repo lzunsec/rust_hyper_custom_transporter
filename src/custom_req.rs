@@ -24,7 +24,8 @@ impl Connection for CustomTransporter {
 }
 
 pub struct CustomResponse {
-    w: Cursor<Vec<u8>>
+    w: Cursor<Vec<u8>>,
+    i: i32
 }
 
 unsafe impl Send for CustomResponse {
@@ -44,27 +45,16 @@ impl AsyncRead for CustomResponse {
         cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>
     ) -> Poll<std::io::Result<()>> {
-        println!("poll_read");
-        let r = Pin::new(&mut self.w).poll_read(cx, buf);
-        println!("did poll_read");
-        /*
-        match r {
-            Poll::Ready(a) => {
-                println!("ready!");
-                match a.unwrap() {
-                    () => {
-                        println!("unwrap ()")
-                    }
-                }
-                panic!("p");
-            },
-            Poll::Pending =>{ 
-                println!("pending!");
-                panic!("p");
-            }
+        self.i+=1;
+        if self.i >=3 {
+            println!("!!!!!!!!!!!!poll_read for buf size {}", buf.capacity());
+            let r = Pin::new(&mut self.w).poll_read(cx, buf);
+            println!("did poll_read");
+            r
+        } else {
+            println!("poll read pending, i={}", self.i);
+            Poll::Pending
         }
-        */
-        r
     }
 }
 
@@ -75,15 +65,38 @@ impl AsyncWrite for CustomResponse {
         buf: &[u8]
     ) -> Poll<Result<usize, std::io::Error>>{
         //let v = vec!();
-        println!("poll_write");
-        Pin::new(&mut self.w).poll_write(cx, buf)
+        println!("poll_write____");
+
+        let r= Pin::new(&mut self.w).poll_write(cx, buf);
+
+        let s = match std::str::from_utf8(buf) {
+            Ok(v) => v,
+            Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+        };
+
+        println!("result: {}, size: {}, i: {}", s, s.len(), self.i);
+        if self.i>=0{
+            r
+            //Poll::Ready(Ok(s.len()))
+        }else{
+            println!("poll_write pending");
+            Poll::Pending
+        }
     }
     fn poll_flush(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>
     ) -> Poll<Result<(), std::io::Error>> {
         println!("poll_flush");
-        Pin::new(&mut self.w).poll_flush(cx)
+        let r = Pin::new(&mut self.w).poll_flush(cx);
+        if self.i>=0{
+            println!("DID poll_flush");
+            r
+            //Poll::Ready(Ok(()))
+        }else{
+            println!("poll_flush pending");
+            Poll::Pending
+        }
     }
 
     fn poll_shutdown(
@@ -105,26 +118,18 @@ impl Service<hyper::Uri> for CustomTransporter {
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         println!("poll_ready");
         Poll::Ready(Ok(()))
+        //Poll::Pending
     }
 
     fn call(&mut self, req: hyper::Uri) -> Self::Future {
         println!("call");
         // create the body
-        let body: Vec<u8> = "HTTP/1.1 200 OK
-Date: Sat, 06 Feb 2021 03:35:23 GMT
-Server: Apache/2.4.34 (Amazon) OpenSSL/1.0.2k-fips PHP/5.5.38
-Last-Modified: Wed, 23 Dec 2015 01:18:20 GMT
-ETag: \"353-527867f65e8ad\"
-Accept-Ranges: bytes
-Content-Length: 851
-Keep-Alive: timeout=5, max=100
-Connection: Keep-Alive
-Content-Type: text/html; charset=UTF-8\n
-hello".as_bytes()
+        let body: Vec<u8> = "HTTP/1.1 200 OK\nDate: Mon, 27 Jul 2009 12:28:53 GMT\nServer: Apache/2.2.14 (Win32)\nLast-Modified: Wed, 22 Jul 2009 19:15:56 GMT\nContent-Length: 88\nContent-Type: text/html\nConnection: Closed<html><body><h1>Hello, World!</h1></body></html>".as_bytes()
             .to_owned();
         // Create the HTTP response
         let resp = CustomResponse{
-            w: Cursor::new(body)
+            w: Cursor::new(body),
+            i: 0
         };
          
         // create a response in a future.

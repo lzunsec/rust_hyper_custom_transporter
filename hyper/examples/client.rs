@@ -1,12 +1,9 @@
-mod custom_req;
-use custom_req::CustomTransporter;
-
+#![deny(warnings)]
+#![warn(rust_2018_idioms)]
 use std::env;
 
-use hyper::{body::Body, Client};
+use hyper::{body::HttpBody as _, Client};
 use tokio::io::{self, AsyncWriteExt as _};
-use hyper::body::HttpBody;
-
 
 // A simple type alias so as to DRY.
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -36,21 +33,17 @@ async fn main() -> Result<()> {
 }
 
 async fn fetch_url(url: hyper::Uri) -> Result<()> {
-    let connector = CustomTransporter::new();
-    let client: Client<CustomTransporter, hyper::Body> = Client::builder().build(connector);
+    let client = Client::new();
 
-    println!("fetching url: {}", url.host().unwrap());
+    let mut res = client.get(url).await?;
 
-    let body = Body::empty();
-
-    let mut res = client.get(url).await.unwrap();
-    
-    println!("passed get");
     println!("Response: {}", res.status());
     println!("Headers: {:#?}\n", res.headers());
 
+    // Stream the body, writing each chunk to stdout as we get it
+    // (instead of buffering and printing at the end).
     while let Some(next) = res.data().await {
-        let chunk = next.unwrap();
+        let chunk = next?;
         io::stdout().write_all(&chunk).await?;
     }
 
