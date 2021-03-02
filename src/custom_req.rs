@@ -24,7 +24,8 @@ impl Connection for CustomTransporter {
 }
 
 pub struct CustomResponse {
-    w: Cursor<Vec<u8>>,
+    //w: Cursor<Vec<u8>>,
+    v: Vec<u8>,
     i: i32
 }
 
@@ -47,10 +48,10 @@ impl AsyncRead for CustomResponse {
     ) -> Poll<std::io::Result<()>> {
         self.i+=1;
         if self.i >=3 {
-            println!("!!!!!!!!!!!!poll_read for buf size {}", buf.capacity());
-            let r = Pin::new(&mut self.w).poll_read(cx, buf);
+            println!("poll_read for buf size {}", buf.capacity());
+            buf.put_slice(self.v.as_slice());
             println!("did poll_read");
-            r
+            Poll::Ready(Ok(()))
         } else {
             println!("poll read pending, i={}", self.i);
             Poll::Pending
@@ -67,7 +68,7 @@ impl AsyncWrite for CustomResponse {
         //let v = vec!();
         println!("poll_write____");
 
-        let r= Pin::new(&mut self.w).poll_write(cx, buf);
+        //let r= Pin::new(&mut self.w).poll_write(cx, buf);
 
         let s = match std::str::from_utf8(buf) {
             Ok(v) => v,
@@ -76,8 +77,8 @@ impl AsyncWrite for CustomResponse {
 
         println!("result: {}, size: {}, i: {}", s, s.len(), self.i);
         if self.i>=0{
-            r
-            //Poll::Ready(Ok(s.len()))
+            //r
+            Poll::Ready(Ok(s.len()))
         }else{
             println!("poll_write pending");
             Poll::Pending
@@ -88,11 +89,11 @@ impl AsyncWrite for CustomResponse {
         cx: &mut Context<'_>
     ) -> Poll<Result<(), std::io::Error>> {
         println!("poll_flush");
-        let r = Pin::new(&mut self.w).poll_flush(cx);
+        //let r = Pin::new(&mut self.w).poll_flush(cx);
         if self.i>=0{
             println!("DID poll_flush");
-            r
-            //Poll::Ready(Ok(()))
+            //r
+            Poll::Ready(Ok(()))
         }else{
             println!("poll_flush pending");
             Poll::Pending
@@ -105,7 +106,8 @@ impl AsyncWrite for CustomResponse {
     ) -> Poll<Result<(), std::io::Error>>
     {
         println!("poll_shutdown");
-        Pin::new(&mut self.w).poll_shutdown(cx)
+        //Pin::new(&mut self.w).poll_shutdown(cx)
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -128,12 +130,13 @@ impl Service<hyper::Uri> for CustomTransporter {
             .to_owned();
         // Create the HTTP response
         let resp = CustomResponse{
-            w: Cursor::new(body),
+            //w: Cursor::new(body),
+            v: body,
             i: 0
         };
          
         // create a response in a future.
-        let fut = async {
+        let fut = async move{
             Ok(resp)
         };
         println!("gonna return from call");

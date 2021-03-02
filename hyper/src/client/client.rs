@@ -232,6 +232,7 @@ where
 
         let set_host = self.config.set_host;
         let executor = self.conn_builder.exec.clone();
+        println!("before conn.and_then");
         conn.and_then(move |mut pooled| {
             println!("pooled");
             if pooled.is_http1() {
@@ -343,6 +344,7 @@ where
         println!("begin connection_for");
         let checkout = self.pool.checkout(pool_key.clone());
         let connect = self.connect_to(pool_key);
+        println!("after connect_to");
 
         let executor = self.conn_builder.exec.clone();
         // The order of the `select` is depended on below...
@@ -430,6 +432,7 @@ where
         &self,
         pool_key: PoolKey,
     ) -> impl Lazy<Output = crate::Result<Pooled<PoolClient<B>>>> + Unpin {
+        println!("-------------------begin connect_to");
         let executor = self.conn_builder.exec.clone();
         let pool = self.pool.clone();
         #[cfg(not(feature = "http2"))]
@@ -440,7 +443,7 @@ where
         let is_ver_h2 = ver == Ver::Http2;
         let connector = self.connector.clone();
         let dst = domain_as_uri(pool_key.clone());
-        hyper_lazy(move || {
+        let r = hyper_lazy(move || {
             println!("hyper lazy");
 
             // Try to take a "connecting lock".
@@ -511,12 +514,20 @@ where
                                             debug!("client connection error: {}", e);
                                             println!("client connection error: {}", e);
                                         })
-                                            .map(|_| ()),
+                                            .map(|_| {
+                                                println!("mapped nothing");
+                                                ()
+                                            }),
                                     );
+
+                                    println!("executor complete!");
+
 
                                     // Wait for 'conn' to ready up before we
                                     // declare this tx as usable
-                                    tx.when_ready()
+                                    let r = tx.when_ready();
+                                    println!("tx.when_ready!");
+                                    r
                                 })
                                 .map_ok(move |tx| {
                                     println!("hyper lz map ok move!");
@@ -544,7 +555,9 @@ where
                         ))
                     }),
             )
-        })
+        });
+        println!("-------------------END connect_to");
+        r
     }
 }
 

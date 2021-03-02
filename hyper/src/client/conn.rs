@@ -456,13 +456,19 @@ where
     type Output = crate::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        match ready!(Pin::new(self.inner.as_mut().unwrap()).poll(cx))? {
-            proto::Dispatched::Shutdown => Poll::Ready(Ok(())),
+        println!("^^^^^^^^connection pool");
+        let r = match ready!(Pin::new(self.inner.as_mut().unwrap()).poll(cx))? {
+            proto::Dispatched::Shutdown => {
+                println!("proto::Dispatched::Shutdown");
+                Poll::Ready(Ok(()))
+            },
             #[cfg(feature = "http1")]
             proto::Dispatched::Upgrade(pending) => match self.inner.take() {
                 Some(ProtoClient::H1(h1)) => {
+                    println!("Some(ProtoClient::H1(h1)) ");
                     let (io, buf, _) = h1.into_inner();
                     pending.fulfill(Upgraded::new(io, buf));
+                    println!("after fullfill!");
                     Poll::Ready(Ok(()))
                 }
                 _ => {
@@ -470,7 +476,9 @@ where
                     unreachable!("Upgrade expects h1");
                 }
             },
-        }
+        };
+        println!("^^^^^^^ending connection pool");
+        r
     }
 }
 
@@ -766,18 +774,22 @@ where
     type Output = crate::Result<proto::Dispatched>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        match self.project() {
+        let r = match self.project() {
             #[cfg(feature = "http1")] 
             ProtoClientProj::H1(c) => {
                 println!("pooling h1");
-                c.poll(cx)
+                let r = c.poll(cx);
+                println!("after pooling h1");
+                r
             },
             #[cfg(feature = "http2")]
             ProtoClientProj::H2(c, _) => {
                 println!("pooling h2");
                 c.poll(cx)
             },
-        }
+        };
+        println!("finishing protoclient poll");
+        r
     }
 }
 

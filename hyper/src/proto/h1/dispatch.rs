@@ -470,7 +470,9 @@ where
     #[inline]
     fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
         println!("DISPATCHER POLL!!!!!");
-        self.poll_catch(cx, true)
+        let r = self.poll_catch(cx, true);
+        println!("after poll_catch");
+        r
     }
 }
 
