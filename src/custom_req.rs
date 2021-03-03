@@ -54,6 +54,12 @@ impl AsyncRead for CustomResponse {
             Poll::Ready(Ok(()))
         } else {
             println!("poll read pending, i={}", self.i);
+            let w = cx.waker().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                println!("gonna wake!");
+                w.wake();
+            });
             Poll::Pending
         }
     }
@@ -126,8 +132,14 @@ impl Service<hyper::Uri> for CustomTransporter {
     fn call(&mut self, req: hyper::Uri) -> Self::Future {
         println!("call");
         // create the body
-        let body: Vec<u8> = "HTTP/1.1 200 OK\nDate: Mon, 27 Jul 2009 12:28:53 GMT\nServer: Apache/2.2.14 (Win32)\nLast-Modified: Wed, 22 Jul 2009 19:15:56 GMT\nContent-Length: 88\nContent-Type: text/html\nConnection: Closed<html><body><h1>Hello, World!</h1></body></html>".as_bytes()
-            .to_owned();
+        let body: Vec<u8> = "HTTP/1.1 301 Moved Permanently\n
+Date: Wed, 03 Mar 2021 01:53:17 GMT\n
+Server: Apache/2.4.10 (Debian)\n
+Location: https://lucaszanella.com/\n
+Content-Length: 315\n
+Keep-Alive: timeout=5, max=100\n
+Connection: Keep-Alive\n
+Content-Type: text/html; charset=iso-8859-".as_bytes().to_owned();
         // Create the HTTP response
         let resp = CustomResponse{
             //w: Cursor::new(body),

@@ -171,6 +171,7 @@ where
                     let max = self.read_buf_strategy.max();
                     if self.read_buf.len() >= max {
                         debug!("max_buf_size ({}) reached, closing", max);
+                        println!("max_buf_size ({}) reached, closing", max);
                         return Poll::Ready(Err(crate::Error::new_too_large()));
                     }
                 }

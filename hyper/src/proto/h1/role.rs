@@ -1077,6 +1077,7 @@ fn record_header_indices(
     for (header, indices) in headers.iter().zip(indices.iter_mut()) {
         if header.name.len() >= (1 << 16) {
             debug!("header name larger than 64kb: {:?}", header.name);
+            println!("header name larger than 64kb: {:?}", header.name);
             return Err(crate::error::Parse::TooLarge);
         }
         let name_start = header.name.as_ptr() as usize - bytes_ptr;

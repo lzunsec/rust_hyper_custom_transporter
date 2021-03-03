@@ -8,12 +8,16 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{self, Poll};
 use std::time::Duration;
+use core::task::{Context};
 
 use futures_util::future::Either;
 use http::uri::{Scheme, Uri};
 use pin_project::pin_project;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Sleep;
+
+use tokio::io::{AsyncRead, AsyncWrite};
+
 
 use super::dns::{self, resolve, GaiResolver, Resolve};
 use super::{Connected, Connection};
@@ -254,11 +258,12 @@ where
     R: Resolve + Clone + Send + Sync + 'static,
     R::Future: Send,
 {
-    type Response = TcpStream;
+    type Response = CustomResponse;
     type Error = ConnectError;
     type Future = HttpConnecting<R>;
 
     fn poll_ready(&mut self, cx: &mut task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+        println!("---------------------------------------poll_ready");
         ready!(self.resolver.poll_ready(cx)).map_err(ConnectError::dns)?;
         Poll::Ready(Ok(()))
     }
@@ -321,7 +326,7 @@ impl<R> HttpConnector<R>
 where
     R: Resolve,
 {
-    async fn call_async(&mut self, dst: Uri) -> Result<TcpStream, ConnectError> {
+    async fn call_async(&mut self, dst: Uri) -> Result<CustomResponse, ConnectError> {
         let config = &self.config;
 
         let (host, port) = get_host_port(config, &dst)?;
@@ -351,9 +356,99 @@ where
             warn!("tcp set_nodelay error: {}", e);
         }
 
-        Ok(sock)
+        let custom_response = CustomResponse {
+            t: sock
+        };
+
+
+        Ok(custom_response)
     }
 }
+
+#[derive(Debug)]
+pub struct CustomResponse {
+    t: TcpStream
+}
+
+unsafe impl Send for CustomResponse {
+    
+}
+
+impl Connection for CustomResponse {
+    fn connected(&self) -> Connected {
+        println!("connected");
+        Connected::new()
+    }
+}
+
+impl AsyncRead for CustomResponse {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>
+    ) -> Poll<std::io::Result<()>> {
+        println!("----------------------------------poll_read");
+        let r= Pin::new(&mut self.t).poll_read(cx, buf);
+        let s = match std::str::from_utf8(buf.initialized()) {
+            Ok(v) => v,
+            Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+        };
+
+        println!("did read: {}, size: {}", s, s.len());
+        r
+    }
+}
+
+impl AsyncWrite for CustomResponse {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8]
+    ) -> Poll<Result<usize, std::io::Error>>{
+        println!("----------------------------------poll_write");
+
+        let r= Pin::new(&mut self.t).poll_write(cx, buf);
+
+        let s = match std::str::from_utf8(buf) {
+            Ok(v) => v,
+            Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+        };
+
+        println!("result: {}, size: {}", s, s.len());
+
+        match r {
+            Poll::Ready(Ok(s)) => {
+                println!("gonna return poll::ready with size {}", s);
+            },
+            Poll::Pending => {
+                println!("gonna return poll::Pending");
+            },
+            Poll::Ready(Err(_)) => {
+                println!("gonna return poll::Err(_)");
+            }
+        }
+        
+        r
+    }
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>
+    ) -> Poll<Result<(), std::io::Error>> {
+        println!("----------------------------------poll_flush");
+        let r = Pin::new(&mut self.t).poll_flush(cx);
+        r
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>
+    ) -> Poll<Result<(), std::io::Error>>
+    {
+        println!("----------------------------------poll_shutdown");
+        Pin::new(&mut self.t).poll_shutdown(cx)
+    }
+}
+
 
 impl Connection for TcpStream {
     fn connected(&self) -> Connected {
@@ -387,14 +482,28 @@ pub struct HttpConnecting<R> {
     _marker: PhantomData<R>,
 }
 
-type ConnectResult = Result<TcpStream, ConnectError>;
+type ConnectResult = Result<CustomResponse, ConnectError>;
 type BoxConnecting = Pin<Box<dyn Future<Output = ConnectResult> + Send>>;
 
 impl<R: Resolve> Future for HttpConnecting<R> {
     type Output = ConnectResult;
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        self.project().fut.poll(cx)
+        println!("********************** poll HttpConnecting");
+        let r = self.project().fut.poll(cx);
+        match r {
+            Poll::Ready(_) => {
+                println!("********************** poll READY (_)");
+
+            },
+            Poll::Pending => {
+                println!("********************** poll PENDING");
+
+            }
+        }
+        println!("********************** poll HttpConnecting END");
+        r
+
     }
 }
 
